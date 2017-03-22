@@ -78,9 +78,10 @@ public:
     ExtendedElectronHists(uhh2::Context & ctx, const std::string & dirname, bool gen_plots = true) :
         ElectronHists(ctx, dirname, gen_plots)
         {
-            isolation   = book<TH1F>("isolation_own",   "relIso electron",          20,0,4);
-            isolation_1 = book<TH1F>("isolation_1_own", "relIso electron 1",        20,0,4);
-            isolation_2 = book<TH1F>("isolation_2_own", "relIso electron 2",        20,0,4);
+            isolation   = book<TH1F>("isolation_own",   "relIso electron",          100,0,4);
+            pt_1        = book<TH1F>("pt_1_own",        "p_{T} electron 1",         100,0,1200);
+            isolation_1 = book<TH1F>("isolation_1_own", "relIso electron 1",        100,0,4);
+            isolation_2 = book<TH1F>("isolation_2_own", "relIso electron 2",        100,0,4);
         }
 
 };
@@ -92,9 +93,10 @@ public:
     ExtendedMuonHists(uhh2::Context & ctx, const std::string & dirname, bool gen_plots = true) :
         MuonHists(ctx, dirname, gen_plots)
         {
-            isolation   = book<TH1F>("isolation_own",   "relIso electron",          20,0,4);
-            isolation_1 = book<TH1F>("isolation_1_own", "relIso electron 1",        20,0,4);
-            isolation_2 = book<TH1F>("isolation_2_own", "relIso electron 2",        20,0,4);
+            isolation   = book<TH1F>("isolation_own",   "relIso muon",          100,0,4);
+            pt_1        = book<TH1F>("pt_1_own",        "p_{T} muon 1",         100,0,1200);
+            isolation_1 = book<TH1F>("isolation_1_own", "relIso muon 1",        100,0,4);
+            isolation_2 = book<TH1F>("isolation_2_own", "relIso muon 2",        100,0,4);
             // deltaR_ak8 = book<TH1F>("deltaR_ak8_cleaned", "dR closest Ak8 jet", 40, 0., 2.);
             // deltaR_ak8_uncleaned = book<TH1F>("deltaR_ak8_uncleaned", "dR closest Ak8 jet", 40, 0., 2.);
             // h_ak8 = ctx.get_handle<vector<TopJet>>("topjets");
@@ -130,46 +132,28 @@ protected:
 class ExtendedJetHists : public JetHists {
 public:
     ExtendedJetHists(uhh2::Context & ctx, const std::string & dirname, const unsigned int NumberOfPlottedJets=4, const std::string & collection = "") :
-        JetHists(ctx, dirname, NumberOfPlottedJets, collection)
-    {
-        alljets_nojec = book_jetHist("jet_nojec","_jet_nojec",20,1500);
-
-        std::vector<double> minPt {20,20,20,20};
-        std::vector<double> maxPt {1500,1000,500,350};
-        std::vector<std::string> axis_suffix {"first jet no jec","second jet no jec","third jet no jec","fourth jet no jec"};
-
+        JetHists(ctx, dirname, NumberOfPlottedJets, collection){
+        number = book<TH1F>("number_own","number of jets",21, -.5, 20.5);
+        jetid = boost::none;
+        alljets = book_jetHist("jet","_jet_own",0.,2000.);
+        vector<double> minPt {0.,0.,0.,0.};
+        vector<double> maxPt {2000,1600,1000,600};
+        vector<string> axis_suffix {"first jet","second jet","third jet","fourth jet"};
+        single_jetHists.clear();
         for(unsigned int i =0; i<NumberOfPlottedJets; i++){
-            if(i<4){
-                single_jetHists_nojec.push_back(book_jetHist(axis_suffix[i],"_"+to_string(i+1)+"_nojec",minPt[i],maxPt[i]));
-            }
-            else {
-                single_jetHists_nojec.push_back(book_jetHist(to_string(i+1)+"-th jet","_"+to_string(i+1)+"_nojec",20,500));
-            }
+          if(i<4){
+            single_jetHists.push_back(book_jetHist(axis_suffix[i],"_"+to_string(i+1)+"_own",minPt[i],maxPt[i]));
+          }
+          else {
+            single_jetHists.push_back(book_jetHist(to_string(i+1)+"-th jet","_"+to_string(i+1)+"_own",20,500));
+          }
         }
-
-    }
-
-    virtual void fill(const uhh2::Event & event) override
-    {
-        JetHists::fill(event);
-
-        auto w = event.weight;
-        const auto jets = collection.empty() ? event.jets : &event.get(h_jets);
-        assert(jets);
-        for(unsigned int i = 0; i <jets->size(); i++){
-            auto jet = (*jets)[i];
-            jet.set_v4(jet.v4() * jet.JEC_factor_raw());
-            fill_jetHist(jet,alljets_nojec,w);
-            if(i < single_jetHists_nojec.size()){
-                fill_jetHist(jet, single_jetHists_nojec[i], w);
-            }
+        deltaRmin_1 = book<TH1F>("deltaRmin_1_own", "#Delta R_{min}(first jet,nearest jet)", 40, 0, 8.0);
+        deltaRmin_2 = book<TH1F>("deltaRmin_2_own", "#Delta R_{min}(2nd jet,nearest jet)", 40, 0, 8.0);
+        if(!collection.empty()){
+            h_jets = ctx.get_handle<std::vector<Jet> >(collection);
         }
-
     }
-
-protected:
-    jetHist alljets_nojec;
-    std::vector<jetHist> single_jetHists_nojec;
 
 };
 
@@ -187,23 +171,52 @@ public:
         TH1F *deltaRmu, *deltaRel;
     };
     ExtendedTopJetHists(uhh2::Context & ctx, const std::string & dirname, const JetId & b_tag = CSVBTag(CSVBTag::WP_MEDIUM), const unsigned int NumberOfPlottedJets=4, const std::string & collection = "") :
-        TopJetHists(ctx, dirname, NumberOfPlottedJets, collection), b_tag_(b_tag)
-    {
-        alljets_tagvars = book_tagvarHist("all topjets","");
-
-        string axis_suffix = "topjet";
-        vector<string> axis_singleSubjetSuffix {"first ","second ","third ","fourth "};
-
-        for(unsigned int i =0; i<NumberOfPlottedJets; i++){
-            if(i<4){
-                single_tagvars.push_back(book_tagvarHist(axis_singleSubjetSuffix[i]+axis_suffix,string("_")+to_string(i+1)));
+        TopJetHists(ctx, dirname, NumberOfPlottedJets, collection), b_tag_(b_tag) {
+            number = book<TH1F>("number_own","number of topjets",21, -.5, 20.5);
+            topjetid = boost::none;
+            alljets = book_topJetHist("topjet","_own",20,2000);
+            allsubjets = book_subjetHist("subjet","_subjets_own",0,800);
+            vector<double> maxPt_tj {2000,1600,1000,600};
+            vector<double> maxPt_sj {900,600,400,300};
+            string axis_suffix = "topjet";
+            string axis_subjetSuffix = "subjets ";
+            vector<string> axis_singleSubjetSuffix {"first ","second ","third ","fourth "};
+            single_jetHists.clear();
+            subjets.clear();
+            for(unsigned int i =0; i<NumberOfPlottedJets; i++){
+                if(i<4){
+                  single_jetHists.push_back(book_topJetHist(axis_singleSubjetSuffix[i]+axis_suffix,string("_")+to_string(i+1)+"_own",0,maxPt_tj[i]));
+                  subjets.push_back(book_subjetHist(axis_subjetSuffix+axis_singleSubjetSuffix[i]+axis_suffix,string("_")+to_string(i+1)+string("_subj")+"_own",0,maxPt_sj[i]));
+              }
+              else{
+                  single_jetHists.push_back(book_topJetHist(to_string(i+1)+string("-th jet"),string("_")+to_string(i+1)+"_own",20,500));
+                  subjets.push_back(book_subjetHist(axis_subjetSuffix+to_string(i+1)+string("-th subjet")+axis_suffix,string("_")+to_string(i+1)+string("_subj")+"_own",0,300));
+              }
             }
-            else{
-                single_tagvars.push_back(book_tagvarHist(to_string(i+1)+string("-th jet"),string("_")+to_string(i+1)));
+            deltaRmin_1 = book<TH1F>("deltaRmin_1_own", "#Delta R_{min}(first jet,nearest jet)", 40, 0, 8.0);
+            deltaRmin_2 = book<TH1F>("deltaRmin_2_own", "#Delta R_{min}(2nd jet,nearest jet)", 40, 0, 8.0);
+            tau32 = book<TH1F>("tau32_own", "#tau_{3}/#tau_{2}", 50, 0, 1.0);
+            tau21 = book<TH1F>("tau21_own", "#tau_{2}/#tau_{1}", 50, 0, 1.0);
+            deltaR_ak4jet= book<TH1F>("deltaR_ak4jet_own", "#Delta R(jet,ak4 jet)", 40, 0, 8.0);
+            invmass_topjetak4jet = book<TH1F>("invmass_topjetak4jet_own", "invariant mass(jet,ak4 jet)", 100, 0, 1000);
+            HTT_mass = book<TH1F>("HTT_mass_own", "HTT mass", 100, 0, 1000);
+            fRec = book<TH1F>("fRec_own", "fRec", 50,0,1); 
+
+            if(!collection.empty()){
+                h_topjets = ctx.get_handle<std::vector<TopJet> >(collection);
+            }
+
+            alljets_tagvars = book_tagvarHist("all topjets","");
+
+            for(unsigned int i =0; i<NumberOfPlottedJets; i++){
+                if(i<4){
+                    single_tagvars.push_back(book_tagvarHist(axis_singleSubjetSuffix[i]+axis_suffix,string("_")+to_string(i+1)));
+                }
+                else{
+                    single_tagvars.push_back(book_tagvarHist(to_string(i+1)+string("-th jet"),string("_")+to_string(i+1)));
+                }
             }
         }
-
-    }
 
     tag_variables_hists book_tagvarHist(const std::string & axisSuffix, const std::string & histSuffix)
     {

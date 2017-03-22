@@ -23,6 +23,7 @@ public:
     SelectionItem(const string & name) : name_(name) {}
     virtual Selection       * make_selection(Context & ctx) const = 0;
     virtual Hists           * make_hists(Context & ctx, const string & dir) const = 0;
+    virtual Hists           * make_hists(Context & ctx, const string & dir, const string & suf) const = 0;
     virtual AnalysisModule  * make_branch_writer(Context & ctx, TTree * tree) const = 0;
     virtual void              declare_for_output(Context & ctx) const = 0;
     const string & name() const {return name_;}
@@ -51,6 +52,11 @@ public:
     virtual Hists * make_hists(Context & ctx, const string & dir) const override {
         // TODO pass title with _%g(min)_to_%g(max)
         return new HandleHist<DATATYPE>(ctx, dir, name_, title_.c_str(), n_bins_, x_min_, x_max_);
+    }
+
+    virtual Hists * make_hists(Context & ctx, const string & dir, const string & suf) const {
+        // TODO pass title with _%g(min)_to_%g(max)
+        return new HandleHist<DATATYPE>(ctx, dir, name_+suf, (title_+suf).c_str(), n_bins_, x_min_, x_max_);
     }
 
     virtual AnalysisModule * make_branch_writer(Context & ctx, TTree * tree) const override {
@@ -107,12 +113,10 @@ public:
         return item_names;
     }
 
-    const vector<string> & all_item_names() const {
-        static vector<string> v;
-        if (!v.size()) {
-            for (const auto & it: items) {
-                v.push_back(it->name());
-            }
+    vector<string> all_item_names() const {
+        vector<string> v;
+        for (const auto & it: items) {
+            v.push_back(it->name());
         }
         return v;
     }
@@ -126,20 +130,20 @@ public:
         return NULL;
     }
 
-    void fill_hists_vector(vector<unique_ptr<Hists>> & target,
+    void fill_hists_vector(vector<shared_ptr<Hists>> & target,
                           const string & dir) const {
         for (const auto & name: item_names) {
             target.emplace_back(get_sel_item(name)->make_hists(ctx, dir));
         }
     }
 
-    void fill_sel_vector(vector<unique_ptr<Selection>> & target) const {
+    void fill_sel_vector(vector<shared_ptr<Selection>> & target) const {
         for (const auto & name: item_names) {
             target.emplace_back(get_sel_item(name)->make_selection(ctx));
         }
     }
 
-    void fill_wrtr_vector(vector<unique_ptr<AnalysisModule>> & target,
+    void fill_wrtr_vector(vector<shared_ptr<AnalysisModule>> & target,
                           TTree * tree) const {
         for (const auto & name: item_names) {
             target.emplace_back(get_sel_item(name)->make_branch_writer(ctx, tree));
@@ -185,7 +189,7 @@ public:
 private:
     const vector<shared_ptr<SelectionItem>> & items;
     Context & ctx;
-    const vector<string> & item_names;
+    vector<string> item_names;
     string h_vec_bool_, h_all_accept_;
 };
 
@@ -201,11 +205,15 @@ public:
     }
 
     void insert_selection(unsigned pos, Selection * sel) {
-        v_sel.insert(v_sel.begin() + pos, move(unique_ptr<Selection>(sel)));
+        v_sel.insert(v_sel.begin() + pos, move(shared_ptr<Selection>(sel)));
+    }
+
+    void push_back_selection(Selection * sel) {
+        v_sel.push_back(move(shared_ptr<Selection>(sel)));
     }
 
     void replace_selection(unsigned pos, Selection * sel) {
-        v_sel[pos] = move(unique_ptr<Selection>(sel));
+        v_sel[pos] = move(shared_ptr<Selection>(sel));
     }
 
     virtual bool process(Event & event) override {
@@ -224,7 +232,7 @@ public:
     }
 
 private:
-    vector<unique_ptr<Selection>> v_sel;
+    vector<shared_ptr<Selection>> v_sel;
     Event::Handle<vector<bool>> h_sel_res;
     Event::Handle<bool> h_all_acc;
 };

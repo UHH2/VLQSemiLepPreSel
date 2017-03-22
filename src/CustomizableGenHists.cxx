@@ -145,6 +145,7 @@ void CustomizableGenHists::add_genhistcoll(int pdgid, unsigned int order_num, co
     new_genhistcoll.h_dRDecay = set_variables.find("dRDecay") != set_variables.end() ? book<TH1F>(particle+"_dRDecay_"+order_str, particle+" dR(decay products) "+order_str, 50, 0., 5.0) : NULL;
     new_genhistcoll.h_dPhiDecay = set_variables.find("dPhiDecay") != set_variables.end() ? book<TH1F>(particle+"_dPhiDecay_"+order_str, particle+" dPhi(decay products) "+order_str, 50, 0., 5.0) : NULL;
     new_genhistcoll.h_dEtaDecay = set_variables.find("dEtaDecay") != set_variables.end() ? book<TH1F>(particle+"_dEtaDecay_"+order_str, particle+" dEta(decay products) "+order_str, 50, 0., 5.0) : NULL;
+    new_genhistcoll.h_2d_dRDecay_pt = set_variables.find("2d_dRDecay_pt") != set_variables.end() ? book<TH2F>(particle+"_2d_dRDecay_pt_"+order_str, ";p_{T};max #Delta R(decay products)", 150, 0, 1500, 50, 0., 5.) : NULL;
 
     all_hists_.push_back(new_genhistcoll);
 
@@ -177,6 +178,9 @@ void CustomizableGenHists::fill_hists(const T * ipart, const std::vector<GenPart
             }
             if (gen_histcoll.h_dEtaDecay) {
                 gen_histcoll.h_dEtaDecay->Fill(std::abs(daughter1->eta()-daughter2->eta()), w);
+            }
+            if (gen_histcoll.h_2d_dRDecay_pt) {
+                gen_histcoll.h_2d_dRDecay_pt->Fill(genpart->pt(), uhh2::deltaR(*daughter1, *daughter2), w);
             }
         }
     }

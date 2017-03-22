@@ -1,4 +1,4 @@
-from math import sqrt
+from math import sqrt, floor, log10
 import subprocess
 import itertools
 import shutil
@@ -7,6 +7,7 @@ import varial.tools
 import varial.util
 import varial.plotter
 import varial.generators as gen
+import numpy as np
 
 
 ############################################ fetch histos and table content ###
@@ -14,7 +15,7 @@ class CutflowTableContent(varial.tools.Tool):
     """Generates cutflow table data."""
     can_reuse = False
 
-    def __init__(self, name=None):
+    def __init__(self, name=None, eff_factor=1000.):
         super(CutflowTableContent, self).__init__(name)
         self.head_line      = []
 
@@ -31,6 +32,7 @@ class CutflowTableContent(varial.tools.Tool):
         self.titles_sig     = []
         self.table_sig      = []
         self.table_sig_err  = []
+        self.eff_factor = eff_factor
 
     def get_input_histos(self):
         wrps = self.lookup_result('../CutflowHistos')
@@ -48,10 +50,11 @@ class CutflowTableContent(varial.tools.Tool):
         self._input_data = varial.gen.sort(data)
 
     def fill_head_line(self):
-        bin_label = self._input_mc[0].histo.GetXaxis().GetBinLabel
+        ref_hist = self._input_mc[0].histo if self._input_mc else self._input_sig[0].histo
+        bin_label = ref_hist.GetXaxis().GetBinLabel
         self.head_line = list(
             bin_label(i + 1)
-            for i in xrange(self._input_mc[0].histo.GetNbinsX())
+            for i in xrange(ref_hist.GetNbinsX())
             if bin_label(i + 1)
         )
 
@@ -110,38 +113,42 @@ class CutflowTableContent(varial.tools.Tool):
 
     def fill_sum_rows(self):
         if len(self._input_data) > 1:
-            self.titles_data.append("Data Sum")
-            self.table_data.append(self._make_column_sum(self.table_data))
+            self.titles_data = ["Data Sum"]
+            self.table_data = [self._make_column_sum(self.table_data)]
 
-        self.titles_mc.append("MC Sum")
-        self.table_mc.append(self._make_column_sum(self.table_mc))
-        self.table_mc_err.append(self._make_column_sum(self.table_mc_err, True))
+        if len(self._input_mc):
+            self.titles_mc.append("Background Sum")
+            self.table_mc.append(self._make_column_sum(self.table_mc))
+            self.table_mc_err.append(self._make_column_sum(self.table_mc_err, True))
 
-    def calc_permillage(self):
-        self.head_line.append("1000 X output/input")
+    def calc_efficiency(self):
+        if self.eff_factor != 1.:
+            self.head_line.append("%i X output/input"%self.eff_factor)
+        else:
+            self.head_line.append("output/input")
         for row in self.table_data:
             if not row:
                 continue
-            row.append(1000. * row[-1] / row[0])
+            row.append(self.eff_factor * row[-1] / row[0])
 
         for row, row_err in itertools.izip(self.table_mc, self.table_mc_err):
             if not (row and row_err):
                 continue
-            row.append(1000. * row[-1] / row[0])
-            row_err.append(0.)  # TODO uncert for binomial
+            row.append(self.eff_factor * row[-1] / row[0])
+            row_err.append(self.eff_factor * row_err[-1] / row[0])  # TODO uncert for binomial
 
         for row, row_err in itertools.izip(self.table_sig, self.table_sig_err):
             if not (row and row_err):
                 continue
-            row.append(1000. * row[-1] / row[0])
-            row_err.append(0.)  # TODO uncert for binomial
+            row.append(self.eff_factor * row[-1] / row[0])
+            row_err.append(self.eff_factor * row_err[-1] / row[0])  # TODO uncert for binomial
 
     def run(self):
         self.get_input_histos()
         self.fill_head_line()
         self.fill_tables()
         self.fill_sum_rows()
-        self.calc_permillage()
+        self.calc_efficiency()
         self.result = self
 
     def mc_title_val_err_iterator(self):
@@ -199,10 +206,12 @@ class CutflowTableTxt(varial.tools.Tool):
 
     def make_center(self):
         self.table_lines.append("\n")
-        self._add_mc_stuff(self.cont.sig_title_val_err_iterator())
-        self.table_lines.append("\n")
-        self._add_mc_stuff(self.cont.mc_title_val_err_iterator())
-        self.table_lines.append("\n")
+        if self.cont._input_sig:
+            self._add_mc_stuff(self.cont.sig_title_val_err_iterator())
+            self.table_lines.append("\n")
+        if self.cont._input_mc:
+            self._add_mc_stuff(self.cont.mc_title_val_err_iterator())
+            self.table_lines.append("\n")
         for title, vals in self.cont.data_title_value_iterator():
             self.table_lines.append(
                 "%32s" % title
@@ -257,6 +266,23 @@ class CutflowTableTex(varial.tools.Tool):
     def configure(self):
         self.cont = self.lookup_result('../CutflowTableContent')
 
+    def get_precision(self, num):
+        if num >= 10.0:
+            return "%17.1f"
+        elif num >= 1.0:
+            return "%17.2f"
+        elif num > 0:
+            ex_dim = abs(floor(log10(num)))
+            add_prec = 0
+            if num*10**ex_dim < 2.:
+                add_prec = 1
+            prec = int(ex_dim+add_prec)
+            prec = "%17."+str(prec)+"f"
+            return prec
+        else:
+            return "%17d"
+
+
     def make_header(self):
         self.table_lines += (
             r"\begin{tabular}{l | "
@@ -276,31 +302,37 @@ class CutflowTableTex(varial.tools.Tool):
 
     def _add_mc_stuff(self, iterator):
         for title, vals, errs in iterator:
+            title = varial.analysis.get_pretty_name(title)
             self.table_lines += (
                 "%30s" % title.replace("_", r"\_")
                     + " &$ "
-                    + self.sep.join("%17.1f" % v for v in vals)
+                    + self.sep.join(self.get_precision(errs[i]) % v for i, v in enumerate(vals[:-1]))
+                    + self.sep + self.get_precision(errs[-1]) % vals[-1]
                     + r" $ \\",
                 30*" "
                     + " &$ "
-                    + self.sep.join("\\pm%17.1f" % e for e in errs)
+                    + self.sep.join("\\pm"+self.get_precision(e) % e for e in errs[:-1])
+                    + self.sep + "\\pm"+self.get_precision(errs[-1]) % errs[-1]
                     + r" $ \\",
             )
 
     def make_center(self):
-        self._add_mc_stuff(self.cont.sig_title_val_err_iterator())
-        self.table_lines.append(r"\hline")
-        self._add_mc_stuff(self.cont.mc_title_val_err_iterator())
-        self.table_lines.insert(-2, r"\hline")
+        if self.cont._input_sig:
+            self._add_mc_stuff(self.cont.sig_title_val_err_iterator())
+            self.table_lines.append(r"\hline")
+        if self.cont._input_mc:
+            self._add_mc_stuff(self.cont.mc_title_val_err_iterator())
+            self.table_lines.insert(-2, r"\hline")
         self.table_lines.append(r"\hline")
         for title, vals in self.cont.data_title_value_iterator():
             self.table_lines.append(
                 "%17s" % title.replace("_", r"\_")
                 + " &$ "
-                + " $&$ ".join("%17d" % v for v in vals)
+                + " $&$ ".join("%17d" % v for v in vals[:-1])
+                + " $&$ " + self.get_precision(vals[-1]) % vals[-1]
                 + r" $ \\"
             )
-        self.table_lines.insert(-1, r"\hline")
+        # self.table_lines.insert(-1, r"\hline")
         self.table_lines.append(r"\hline")
 
     def make_footer(self):

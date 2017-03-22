@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "TH2.h"
+#include "TFile.h"
 
 #include "UHH2/core/include/AnalysisModule.h"
 #include "UHH2/core/include/Event.h"
@@ -30,9 +31,11 @@ explicit TopPtWeight(uhh2::Context& ctx,
                      const std::string& ttgen_name,
                      float a, float b,
                      const std::string& weight_name="weight_ttbar",
+                     float max_pt=400.,
                      bool apply_weight=false):
     h_ttbargen_(ctx.get_handle<TTbarGen>(ttgen_name)),
     h_weight_(ctx.declare_event_output<float>(weight_name)),
+    max_pt_(max_pt),
     a_(a), b_(b),
     apply_weight_(apply_weight) {}
 
@@ -50,8 +53,8 @@ explicit TopPtWeight(uhh2::Context& ctx,
             float tpt1 = ttbargen.Top()    .v4().Pt();
             float tpt2 = ttbargen.Antitop().v4().Pt();
 
-            tpt1 = std::min(tpt1, float(400.));
-            tpt2 = std::min(tpt2, float(400.));
+            tpt1 = std::min(tpt1, max_pt_);
+            tpt2 = std::min(tpt2, max_pt_);
 
             wgt = sqrt(exp(a_+b_*tpt1)*exp(a_+b_*tpt2));
         }
@@ -67,6 +70,7 @@ explicit TopPtWeight(uhh2::Context& ctx,
 protected:
     uhh2::Event::Handle<TTbarGen> h_ttbargen_;
     uhh2::Event::Handle<float> h_weight_;
+    float max_pt_;
     float a_, b_;
     bool apply_weight_;
 };  // TopPtWeight
@@ -468,6 +472,8 @@ public:
             e.set(h_pt, pt);
             return true;
         }
+        e.set(h_dr, 0.);
+        e.set(h_pt, 0.);
         return false;
     }
 
@@ -676,32 +682,36 @@ public:
                         const string & h_in,
                         const string & h_out):
         h_in_(ctx.get_handle<vector<TopJet>>(h_in)),
-        h_out_(ctx.get_handle<float>(h_out)) {}
+        h_out_sd_(ctx.get_handle<float>(h_out+"_softdrop")),
+        h_out_sj_(ctx.get_handle<float>(h_out+"_sj")) {}
 
     virtual bool process(Event & event) override {
         if (event.is_valid(h_in_)) {
             vector<TopJet> & coll = event.get(h_in_);
             if (coll.size()) {
+                event.set(h_out_sd_, coll[0].softdropmass());
                 if (coll[0].subjets().size()){
                     LorentzVector sum_subjets;
                     for (Jet const & subjet : coll[0].subjets())
                         sum_subjets += subjet.v4();
-                    event.set(h_out_, sum_subjets.M());
+                    event.set(h_out_sj_, sum_subjets.M());
                 } else {
-                    event.set(h_out_, -1.);
+                    event.set(h_out_sj_, -1.);
                 }
             } else {
-                event.set(h_out_, -1.);
+                event.set(h_out_sj_, -1.);
+                event.set(h_out_sd_, -1.);
             }
             return true;
         } else {
-            event.set(h_out_, -1.);
+            event.set(h_out_sj_, -1.);
+            event.set(h_out_sd_, -1.);
             return false;
         }
     }
 private:
     Event::Handle<vector<TopJet>> h_in_;
-    Event::Handle<float> h_out_;
+    Event::Handle<float> h_out_sd_, h_out_sj_;
 };
 
 
@@ -835,7 +845,7 @@ class VectorAndSelection: public Selection {
 public:
     explicit VectorAndSelection(const vector<Selection*> &sel_vec) {
         for (const auto & sel : sel_vec) {
-            sel_vec_.emplace_back(sel);
+            sel_vec_.push_back(sel);
         }
     }
 
@@ -849,7 +859,7 @@ public:
     }
 
 private:
-    vector<unique_ptr<Selection>> sel_vec_;
+    vector<Selection*> sel_vec_;
 };  // VectorAndSelection
 
 
@@ -863,6 +873,17 @@ public:
                 bool only_leading = false,
                 bool use_min = true) :
         h_comp_coll_(ctx.get_handle<vector<TYPE>>(h_comp_coll)),
+        min_dr_(min_dr),
+        only_leading_(only_leading),
+        use_min_(use_min),
+        use_handle_(false)
+        {}
+
+    MinMaxDeltaRId(Event::Handle<vector<TYPE>> h_comp_coll,
+                float min_dr = 1.0,
+                bool only_leading = false,
+                bool use_min = true) :
+        h_comp_coll_(h_comp_coll),
         min_dr_(min_dr),
         only_leading_(only_leading),
         use_min_(use_min),
@@ -1125,14 +1146,18 @@ public:
                                        const std::string & trg_el,
                                        const std::string & trg_mu,
                                        float min_el_pt = 0.,
-                                       float min_mu_pt = 0.) :
+                                       float min_mu_pt = 0.,
+                                       const std::string & ele_in_coll = "electrons",
+                                       const std::string & mu_in_coll = "muons") :
     h_primlep(ctx.get_handle<FlavorParticle>(h_name)),
     h_trg_el(ctx.get_handle<int>(trg_el)),
     h_trg_mu(ctx.get_handle<int>(trg_mu)),
     h_ele_coll(ctx.get_handle<std::vector<Electron>>("prim_ele_coll")),
     h_mu_coll(ctx.get_handle<std::vector<Muon>>("prim_mu_coll")),
     min_el_pt_(min_el_pt),
-    min_mu_pt_(min_mu_pt) {}
+    min_mu_pt_(min_mu_pt),
+    h_ele_in_coll(ctx.get_handle<std::vector<Electron>>(ele_in_coll)),
+    h_mu_in_coll(ctx.get_handle<std::vector<Muon>>(mu_in_coll)) {}
 
     explicit TriggerAwarePrimaryLepton(uhh2::Context & ctx,
                                        const std::string & h_name,
@@ -1141,14 +1166,18 @@ public:
                                        const std::string & ele_coll,
                                        const std::string & mu_coll,
                                        float min_el_pt = 0.,
-                                       float min_mu_pt = 0.) :
+                                       float min_mu_pt = 0.,
+                                       const std::string & ele_in_coll = "electrons",
+                                       const std::string & mu_in_coll = "muons") :
     h_primlep(ctx.get_handle<FlavorParticle>(h_name)),
     h_trg_el(ctx.get_handle<int>(trg_el)),
     h_trg_mu(ctx.get_handle<int>(trg_mu)),
     h_ele_coll(ctx.get_handle<std::vector<Electron>>(ele_coll)),
     h_mu_coll(ctx.get_handle<std::vector<Muon>>(mu_coll)),
     min_el_pt_(min_el_pt),
-    min_mu_pt_(min_mu_pt) {}
+    min_mu_pt_(min_mu_pt),
+    h_ele_in_coll(ctx.get_handle<std::vector<Electron>>(ele_in_coll)),
+    h_mu_in_coll(ctx.get_handle<std::vector<Muon>>(mu_in_coll)) {}
 
     virtual bool process(Event & e) override {
         double ptmax = -infinity;
@@ -1157,8 +1186,9 @@ public:
         Muon const * muon = 0;
         std::vector<Electron> prim_el;
         std::vector<Muon> prim_mu;
-        if(e.electrons && e.get(h_trg_el)) {
-            for(const auto & ele : *e.electrons) {
+        if(e.is_valid(h_ele_in_coll) && e.get(h_trg_el)) {
+            std::vector<Electron> const & el_in_coll = e.get(h_ele_in_coll);
+            for(const auto & ele : el_in_coll) {
                 float ele_pt = ele.pt();
                 if(ele_pt > min_el_pt_ && ele_pt > ptmax) {
                     ptmax = ele_pt;
@@ -1167,8 +1197,9 @@ public:
                 }
             }
         }
-        if(e.muons && e.get(h_trg_mu)) {
-            for(const auto & mu : *e.muons) {
+        if(e.is_valid(h_mu_in_coll) && e.get(h_trg_mu)) {
+            std::vector<Muon> const & mu_in_coll = e.get(h_mu_in_coll);
+            for(const auto & mu : mu_in_coll) {
                 float mu_pt = mu.pt();
                 if(mu_pt > min_mu_pt_ && mu_pt > ptmax) {
                     ptmax = mu_pt;
@@ -1195,6 +1226,8 @@ private:
     Event::Handle<std::vector<Muon>> h_mu_coll;
     float min_el_pt_;
     float min_mu_pt_;
+    Event::Handle<std::vector<Electron>> h_ele_in_coll;
+    Event::Handle<std::vector<Muon>> h_mu_in_coll;
 };  // TriggerAwarePrimaryLepton
 
 
@@ -1205,7 +1238,8 @@ public:
         n_events_total_str(ctx.get("n_events_total")),
         hist(book<TH1F>("NInputEventsHist", "NInputEventsHist", 1, -.5, 0.5))
     {
-        hist->SetBit(TH1::kCanRebin);
+        // hist->SetBit(TH1::kCanRebin);
+        hist->SetCanExtend(TH1::kAllAxes);
     }
 
     virtual void fill(const Event &) override {
@@ -1302,15 +1336,19 @@ class JetPtAndMultFixerWeight: public uhh2::AnalysisModule {
 public:
     explicit JetPtAndMultFixerWeight(uhh2::Context & ctx,
                             string const & h_in,
-                            float offset, float gradient,
+                            float offset, float gradient, float const_term,
+                            // float cov_p0_p0, float cov_p0_p1, float cov_p1_p1,
+                            float min_pt = 200.,
+                            float thresshold = numeric_limits<float>::infinity(),
                             string const & h_weight = "weight_jetpt",
                             bool apply_event_weight = false) :
         h_in_(ctx.get_handle<std::vector<T>>(h_in)),
-        offset_(offset), gradient_(gradient),
-        cov_p0_p0_(0.), cov_p0_p1_(0.), cov_p1_p1_(0.),
+        offset_(offset), gradient_(gradient), const_term_(const_term),
+        min_pt_(min_pt), thresshold_(thresshold),
+        // cov_p0_p0_(cov_p0_p0), cov_p0_p1_(cov_p0_p1), cov_p1_p1_(cov_p1_p1),
         h_weight_(ctx.declare_event_output<float>(h_weight)),
-        h_weight_up_(ctx.declare_event_output<float>(h_weight+"_up")),
-        h_weight_down_(ctx.declare_event_output<float>(h_weight+"_down")),
+        h_weight_up_(ctx.declare_event_output<float>(h_weight+"_plus")),
+        h_weight_down_(ctx.declare_event_output<float>(h_weight+"_minus")),
         apply_event_weight_(apply_event_weight) {
             auto dataset_type = ctx.get("dataset_type");
             is_mc = dataset_type == "MC";
@@ -1321,27 +1359,26 @@ public:
             }
         }
 
-    explicit JetPtAndMultFixerWeight(uhh2::Context & ctx,
-                            string const & h_in,
-                            float offset, float gradient,
-                            float cov_p0_p0, float cov_p0_p1, float cov_p1_p1,
-                            string const & h_weight = "weight_jetpt",
-                            bool apply_event_weight = false) :
-        h_in_(ctx.get_handle<std::vector<T>>(h_in)),
-        offset_(offset), gradient_(gradient),
-        cov_p0_p0_(cov_p0_p0), cov_p0_p1_(cov_p0_p1), cov_p1_p1_(cov_p1_p1),
-        h_weight_(ctx.declare_event_output<float>(h_weight)),
-        h_weight_up_(ctx.declare_event_output<float>(h_weight+"_up")),
-        h_weight_down_(ctx.declare_event_output<float>(h_weight+"_down")),
-        apply_event_weight_(apply_event_weight) {
-            auto dataset_type = ctx.get("dataset_type");
-            is_mc = dataset_type == "MC";
-            if (!is_mc) {
-                cout << "Warning: JetPtAndMultFixerWeight will not have an effect on "
-                <<" this non-MC sample (dataset_type = '" + dataset_type + "')" << endl;
-                return;
-            }
-        }
+    // explicit JetPtAndMultFixerWeight(uhh2::Context & ctx,
+    //                         string const & h_in,
+    //                         float offset, float gradient,
+    //                         float cov_p0_p0, float cov_p0_p1, float cov_p1_p1,
+    //                         string const & h_weight = "weight_jetpt",
+    //                         bool apply_event_weight = false) :
+    //     h_in_(ctx.get_handle<std::vector<T>>(h_in)),
+    //     offset_(offset), gradient_(gradient),
+    //     h_weight_(ctx.declare_event_output<float>(h_weight)),
+    //     h_weight_up_(ctx.declare_event_output<float>(h_weight+"_up")),
+    //     h_weight_down_(ctx.declare_event_output<float>(h_weight+"_down")),
+    //     apply_event_weight_(apply_event_weight) {
+    //         auto dataset_type = ctx.get("dataset_type");
+    //         is_mc = dataset_type == "MC";
+    //         if (!is_mc) {
+    //             cout << "Warning: JetPtAndMultFixerWeight will not have an effect on "
+    //             <<" this non-MC sample (dataset_type = '" + dataset_type + "')" << endl;
+    //             return;
+    //         }
+    //     }
 
     virtual bool process(uhh2::Event & event) override {
         if (!event.is_valid(h_in_))
@@ -1353,15 +1390,20 @@ public:
         if (is_mc) {
             for (auto const & part : coll) {
                 float part_pt = part.pt();
-                if (part_pt < 250.) {
+                if (part_pt < min_pt_) {
                     continue;
                 }
-                float sf = offset_ + part_pt * gradient_;
-                float sf_err = std::sqrt(cov_p0_p0_ + 2 * part_pt * cov_p0_p1_ + part_pt * part_pt * cov_p1_p1_);
+                float sf = 1.0f;
+                if (part_pt < thresshold_)
+                    sf = offset_ + part_pt * gradient_;
+                else
+                    sf = const_term_;
+                // float sf_err = std::sqrt(cov_p0_p0_ + 2 * part_pt * cov_p0_p1_ + part_pt * part_pt * cov_p1_p1_);
 
                 weight *= std::min(1.0f, sf);
-                weight_up *= std::min(1.0f, sf + sf_err);
-                weight_down *= std::min(1.0f, sf - sf_err);
+                // weight_up *= std::min(1.0f, sf + sf_err);
+                // weight_down *= std::min(1.0f, sf - sf_err);
+                weight_down *= std::min(1.0f, sf*sf);
             }
         }
         if (apply_event_weight_) {
@@ -1376,25 +1418,27 @@ public:
 
 private:
     uhh2::Event::Handle<std::vector<T>> h_in_;
-    float offset_, gradient_;
-    float cov_p0_p0_, cov_p0_p1_, cov_p1_p1_;
+    float offset_, gradient_, const_term_;
+    float min_pt_, thresshold_;
+    // float cov_p0_p0_, cov_p0_p1_, cov_p1_p1_;
     uhh2::Event::Handle<float> h_weight_, h_weight_up_, h_weight_down_;
     bool is_mc, apply_event_weight_;
 };  // JetPtAndMultFixerWeight
 
 
 
-template<typename T>
 class HTReweighting: public uhh2::AnalysisModule {
 public:
     explicit HTReweighting(uhh2::Context & ctx,
-                            float offset, float gradient,
-                            string const & h_in = "HT",
+                            float offset, float gradient, float thresshold,
                             string const & h_weight = "weight_htreweight",
+                            string const & h_in = "HT",
                             bool apply_event_weight = false) :
-        offset_(offset), gradient_(gradient),
         h_in_(ctx.get_handle<double>(h_in)),
+        offset_(offset), gradient_(gradient), thresshold_(thresshold),
         h_weight_(ctx.declare_event_output<float>(h_weight)),
+        h_weight_plus_(ctx.declare_event_output<float>(h_weight+"_plus")),
+        h_weight_minus_(ctx.declare_event_output<float>(h_weight+"_minus")),
         apply_event_weight_(apply_event_weight) {
             auto dataset_type = ctx.get("dataset_type");
             is_mc = dataset_type == "MC";
@@ -1409,23 +1453,30 @@ public:
         if (!event.is_valid(h_in_))
             return false;
         double ht = event.get(h_in_);
+        if (ht > thresshold_)
+            ht = thresshold_;
         float weight = 1.0f;
+        float weight_plus = 1.0f;
+        float weight_minus = 1.0f;
         if (is_mc) {
             float sf = offset_ + ht * gradient_;
 
-            weight *= std::min(1.0f, sf);
+            weight *= sf;
+            weight_minus *= sf*sf;
         }
         if (apply_event_weight_) {
             event.weight *= weight;
         }
         event.set(h_weight_, weight);
+        event.set(h_weight_plus_, weight_plus);
+        event.set(h_weight_minus_, weight_minus);
         return true;
     }
 
 private:
     uhh2::Event::Handle<double> h_in_;
-    float offset_, gradient_;
-    uhh2::Event::Handle<float> h_weight_;
+    float offset_, gradient_, thresshold_;
+    uhh2::Event::Handle<float> h_weight_, h_weight_plus_, h_weight_minus_;
     bool is_mc, apply_event_weight_;
 };  // JetPtAndMultFixerWeight
 
@@ -1496,6 +1547,124 @@ public:
 private:
     bool set_to_one_;
     vector<Event::Handle<float>> hndls;
+};
+
+class MCElectronScaleFactor : public AnalysisModule {
+public:
+    MCElectronScaleFactor(uhh2::Context & ctx,
+                                    const std::string & sf_file_path,
+                                    const std::string & sf_name,
+                                    float sys_error_percantage,
+                                    const std::string & weight_postfix = "",
+                                    const std::string & sys_uncert = "nominal",
+                                    const std::string & electrons_handle_name = "electrons",
+                                    bool reverse_hist = false): 
+      h_electrons_            (ctx.get_handle<std::vector<Electron>>(electrons_handle_name)),
+      h_electron_weight_      (ctx.declare_event_output<float>("weight_sfel_" + weight_postfix)),
+      h_electron_weight_up_   (ctx.declare_event_output<float>("weight_sfel_" + weight_postfix + "_up")),
+      h_electron_weight_down_ (ctx.declare_event_output<float>("weight_sfel_" + weight_postfix + "_down")),
+      sys_error_factor_       (sys_error_percantage/100.),
+      reverse_hist_(reverse_hist)
+    {
+        auto dataset_type = ctx.get("dataset_type");
+        bool is_mc = dataset_type == "MC";
+        if (!is_mc) {
+            cout << "Warning: MCElectronScaleFactor will not have an effect on "
+                 <<" this non-MC sample (dataset_type = '" + dataset_type + "')" << endl;
+            return;
+        }
+        TFile sf_file(sf_file_path.c_str());
+        if (sf_file.IsZombie()) {
+            throw runtime_error("Scale factor file for electrons not found: " + sf_file_path);
+        }
+        
+        sf_hist_.reset((TH2*) sf_file.Get((sf_name).c_str()));
+        if (!sf_hist_.get()) {
+            throw runtime_error("Scale factor directory not found in file: " + sf_name);
+        }
+        sf_hist_->SetDirectory(0);
+        if (!reverse_hist_) {
+            eta_min_ = sf_hist_->GetYaxis()->GetXmin();
+            eta_max_ = sf_hist_->GetYaxis()->GetXmax();
+            pt_min_  = sf_hist_->GetXaxis()->GetXmin();
+            pt_max_  = sf_hist_->GetXaxis()->GetXmax();
+        }
+        else {
+            eta_min_ = sf_hist_->GetXaxis()->GetXmin();
+            eta_max_ = sf_hist_->GetXaxis()->GetXmax();
+            pt_min_  = sf_hist_->GetYaxis()->GetXmin();
+            pt_max_  = sf_hist_->GetYaxis()->GetXmax();
+        }
+        sys_direction_ = 0;
+        if (sys_uncert == "up") {
+            sys_direction_ = 1;
+        } else if (sys_uncert == "down") {
+            sys_direction_ = -1;
+        }
+    }
+
+    bool process(uhh2::Event & event) {
+
+        if (!sf_hist_) {  
+            event.set(h_electron_weight_,       1.);
+            event.set(h_electron_weight_up_,    1.);
+            event.set(h_electron_weight_down_,  1.);
+            return true;
+        }
+        const auto & electrons = event.get(h_electrons_);
+        float weight = 1., weight_up = 1., weight_down = 1.;
+        for (const auto & el : electrons) {
+            float eta = fabs(el.eta());
+            float pt = el.pt();
+            if (eta_min_ < eta && eta_max_ > eta){
+                bool out_of_range = false;
+                //take scale factor from the last measured pT bin in case of too large/small pT
+                if(pt_min_ >= pt) {
+                    pt=pt_min_+0.0001;
+                    out_of_range = true;
+                }
+                if(pt_max_ <= pt) {
+                    pt=pt_max_-0.0001;
+                    out_of_range = true;
+                }
+                int bin;
+                if (!reverse_hist_)
+                    bin       = sf_hist_->FindFixBin(pt, eta);
+                else
+                    bin       = sf_hist_->FindFixBin(eta, pt);
+                float w       = sf_hist_->GetBinContent(bin);
+                float err     = sf_hist_->GetBinError(bin);
+                float err_tot = sqrt(err*err + pow(w*sys_error_factor_, 2));
+                //take twice the uncertainty if the pT is outside the measured pT range
+                if(out_of_range) err_tot*=2;
+                weight      *= w;
+                weight_up   *= w + err_tot;
+                weight_down *= w - err_tot;
+            }
+        }
+        event.set(h_electron_weight_,       weight);
+        event.set(h_electron_weight_up_,    weight_up);
+        event.set(h_electron_weight_down_,  weight_down);
+        if (sys_direction_ == 1) {
+            event.weight *= weight_up;
+        } else if (sys_direction_ == -1) {
+            event.weight *= weight_down;
+        } else {
+            event.weight *= weight;
+        }
+        return true;
+    }
+
+private: 
+    uhh2::Event::Handle<std::vector<Electron>> h_electrons_;
+    std::unique_ptr<TH2> sf_hist_;
+    uhh2::Event::Handle<float> h_electron_weight_;
+    uhh2::Event::Handle<float> h_electron_weight_up_;
+    uhh2::Event::Handle<float> h_electron_weight_down_;
+    float sys_error_factor_;
+    float eta_min_, eta_max_, pt_min_, pt_max_;
+    int sys_direction_;
+    bool reverse_hist_;
 };
 
 // } // namespace

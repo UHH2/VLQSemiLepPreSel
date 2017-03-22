@@ -61,10 +61,10 @@ public:
     TreeWriter(Context & ctx,
                const string & filename):
         context(ctx),
-        out_file(unique_ptr<TFile>(new TFile(("tree_writer."+filename+".root").c_str(),
+        out_file(shared_ptr<TFile>(new TFile(("tree_writer."+filename+".root").c_str(),
                                              "RECREATE",
                                              filename.c_str()))),
-        out_tree(unique_ptr<TTree>(new TTree(filename.c_str(),
+        out_tree(shared_ptr<TTree>(new TTree(filename.c_str(),
                                              filename.c_str())))
     {
         v_writers.emplace_back(new WeightToBranchWriter(context, out_tree.get()));
@@ -73,14 +73,14 @@ public:
     ~TreeWriter() {
         out_file->Write();
         out_file->Close();
-        out_tree.release();
+        // out_tree.release();
     }
 
     TTree * tree() {
         return out_tree.get();
     }
 
-    vector<unique_ptr<AnalysisModule>> & writers() {
+    vector<shared_ptr<AnalysisModule>> & writers() {
         return v_writers;
     }
 
@@ -94,7 +94,7 @@ public:
 
 private:
     Context & context;
-    unique_ptr<TFile> out_file;
-    unique_ptr<TTree> out_tree;
-    vector<unique_ptr<AnalysisModule>> v_writers;
+    shared_ptr<TFile> out_file;
+    shared_ptr<TTree> out_tree;
+    vector<shared_ptr<AnalysisModule>> v_writers;
 };

@@ -28,7 +28,7 @@ public:
     }
 
     void insert_hists(unsigned pos, Hists * hists) {
-        v_hists.insert(v_hists.begin() + pos, move(unique_ptr<Hists>(hists)));
+        v_hists.insert(v_hists.begin() + pos, move(shared_ptr<Hists>(hists)));
     }
 
     virtual void fill(const Event & event) override {
@@ -53,7 +53,7 @@ public:
 
 private:
     Event::Handle<vector<bool>> h_sel_res;
-    vector<unique_ptr<Hists>> v_hists;
+    vector<shared_ptr<Hists>> v_hists;
 };
 
 
@@ -74,12 +74,12 @@ public:
     }
 
     void insert_hist_and_sel(unsigned pos, Hists * hists, const string & sel) {
-        v_hists.insert(v_hists.begin() + pos, move(unique_ptr<Hists>(hists)));
+        v_hists.insert(v_hists.begin() + pos, move(shared_ptr<Hists>(hists)));
         v_all_items.insert(v_all_items.begin() + pos, sel);
     }
 
     void insert_additional_hist(Hists * hists) {
-        v_hists.push_back(move(unique_ptr<Hists>(hists)));
+        v_hists.push_back(move(shared_ptr<Hists>(hists)));
     }
 
     virtual void fill(const Event & event) override {
@@ -114,9 +114,9 @@ public:
         }
     }
 
-private:
+protected:
     Event::Handle<vector<bool>> h_sel_res;
-    vector<unique_ptr<Hists>> v_hists;
+    vector<shared_ptr<Hists>> v_hists;
     vector<string> v_all_items;
     const vector<string> v_selections;
     const vector<string> v_veto_selections;
