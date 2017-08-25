@@ -222,8 +222,8 @@ class TriangleMassLimitPlots(TriangleLimitPlots):
         self.leg_y = leg_y
 
     def make_tri_hist(self, wrps):
-        tri_hist_exp = ROOT.TH2F('triangular_limits_exp', ';'+self.leg_x+';'+self.leg_y, 6, -0.1, 1.1, 6, -0.1, 1.1)
-        tri_hist_obs = ROOT.TH2F('triangular_limits_obs', ';'+self.leg_x+';'+self.leg_y, 6, -0.1, 1.1, 6, -0.1, 1.1)
+        tri_hist_exp = ROOT.TH2F('triangular_limits_exp', ';'+self.leg_x+';'+self.leg_y+';95% expected T quark mass limit (GeV)', 6, -0.1, 1.1, 6, -0.1, 1.1)
+        tri_hist_obs = ROOT.TH2F('triangular_limits_obs', ';'+self.leg_x+';'+self.leg_y+';95% observed T quark mass limit (GeV)', 6, -0.1, 1.1, 6, -0.1, 1.1)
         tri_hist_exp.SetContour(15)
         tri_hist_obs.SetContour(15)
         tri_hist_exp.SetMinimum(700.)

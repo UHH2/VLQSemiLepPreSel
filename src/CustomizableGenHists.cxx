@@ -36,6 +36,8 @@ namespace
                 return "el";
             case 13:
                 return "mu";
+            case 23:
+                return "Z";
             case 24:
                 return "W";
             case 25:
@@ -102,6 +104,7 @@ void CustomizableGenHists::add_genhistcoll(int pdgid, unsigned int order_num, co
     new_genhistcoll.order_num = order_num;
     new_genhistcoll.genp_id = genp_id;
 
+
     std::set<string> set_variables;
     for (auto const & var : variables) {
         set_variables.insert(var);
@@ -119,7 +122,7 @@ void CustomizableGenHists::add_genhistcoll(int pdgid, unsigned int order_num, co
     if (minmax_pts_.count(pdgid)) {
         tie(minpt, maxpt) = minmax_pts_.at(pdgid);
     } else {
-        if (pdgid < 10 || std::abs(pdgid) == 25 || std::abs(pdgid) > 8000000)
+        if (pdgid < 10 || std::abs(pdgid) == 23 || std::abs(pdgid) == 24 || std::abs(pdgid) == 25 || std::abs(pdgid) > 8000000)
             maxpt = 2000.f;
         else
             maxpt = 400.f;
@@ -143,6 +146,8 @@ void CustomizableGenHists::add_genhistcoll(int pdgid, unsigned int order_num, co
     new_genhistcoll.h_decay = set_variables.find("decay") != set_variables.end() ? book<TH1F>(particle+"_decay_"+order_str, particle+" decay "+order_str, 60, -30.5, 30.5) : NULL;
     new_genhistcoll.h_mother = set_variables.find("mother") != set_variables.end() ? book<TH1F>(particle+"_mother_"+order_str, particle+" mother "+order_str, 60, -30.5, 30.5) : NULL;
     new_genhistcoll.h_dRDecay = set_variables.find("dRDecay") != set_variables.end() ? book<TH1F>(particle+"_dRDecay_"+order_str, particle+" dR(decay products) "+order_str, 50, 0., 5.0) : NULL;
+    new_genhistcoll.h_dRDecay_ferm = set_variables.find("dRDecayFerm") != set_variables.end() ? book<TH1F>(particle+"_dRDecayFerm_"+order_str, particle+" dR(decay products) "+order_str, 50, 0., 5.0) : NULL;
+    new_genhistcoll.h_dRDecay_other = set_variables.find("dRDecayOther") != set_variables.end() ? book<TH1F>(particle+"_dRDecayOther_"+order_str, particle+" dR(decay products) "+order_str, 50, 0., 5.0) : NULL;
     new_genhistcoll.h_dPhiDecay = set_variables.find("dPhiDecay") != set_variables.end() ? book<TH1F>(particle+"_dPhiDecay_"+order_str, particle+" dPhi(decay products) "+order_str, 50, 0., 5.0) : NULL;
     new_genhistcoll.h_dEtaDecay = set_variables.find("dEtaDecay") != set_variables.end() ? book<TH1F>(particle+"_dEtaDecay_"+order_str, particle+" dEta(decay products) "+order_str, 50, 0., 5.0) : NULL;
     new_genhistcoll.h_2d_dRDecay_pt = set_variables.find("2d_dRDecay_pt") != set_variables.end() ? book<TH2F>(particle+"_2d_dRDecay_pt_"+order_str, ";p_{T};max #Delta R(decay products)", 150, 0, 1500, 50, 0., 5.) : NULL;
@@ -172,6 +177,12 @@ void CustomizableGenHists::fill_hists(const T * ipart, const std::vector<GenPart
         if (daughter1 && daughter2) {
             if (gen_histcoll.h_dRDecay) {
                 gen_histcoll.h_dRDecay->Fill(uhh2::deltaR(*daughter1, *daughter2), w);
+            }
+            if (gen_histcoll.h_dRDecay_ferm && abs(daughter1->pdgId() <= 16)) {
+                gen_histcoll.h_dRDecay_ferm->Fill(uhh2::deltaR(*daughter1, *daughter2), w);
+            }
+            if (gen_histcoll.h_dRDecay_other && abs(daughter1->pdgId() > 16)) {
+                gen_histcoll.h_dRDecay_other->Fill(uhh2::deltaR(*daughter1, *daughter2), w);
             }
             if (gen_histcoll.h_dPhiDecay) {
                 gen_histcoll.h_dPhiDecay->Fill(uhh2::deltaPhi(*daughter1, *daughter2), w);

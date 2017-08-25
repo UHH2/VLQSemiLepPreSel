@@ -123,9 +123,9 @@ class CutflowTableContent(varial.tools.Tool):
 
     def calc_efficiency(self):
         if self.eff_factor != 1.:
-            self.head_line.append("%i X output/input"%self.eff_factor)
+            self.head_line.append("%i X tot. eff."%self.eff_factor)
         else:
-            self.head_line.append("output/input")
+            self.head_line.append("tot. eff.")
         for row in self.table_data:
             if not row:
                 continue
@@ -285,9 +285,10 @@ class CutflowTableTex(varial.tools.Tool):
 
     def make_header(self):
         self.table_lines += (
-            r"\begin{tabular}{l | "
-                + len(self.cont.head_line)*"r "
+            r"\begin{tabular}{|l | "
+                + len(self.cont.head_line)*"r |"
                 + "}",
+            r"\hline",
             30*" "
                 + " & "
                 + " & ".join(itertools.imap(

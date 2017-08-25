@@ -17,7 +17,7 @@ public:
     {
         int pdgid;
         unsigned int order_num;
-        TH1F *h_pt, *h_eta, *h_phi, *h_n, *h_mass, *h_charge, *h_decay, *h_mother, *h_dRDecay, *h_dPhiDecay, *h_dEtaDecay;
+        TH1F *h_pt, *h_eta, *h_phi, *h_n, *h_mass, *h_charge, *h_decay, *h_mother, *h_dRDecay, *h_dRDecay_ferm, *h_dRDecay_other, *h_dPhiDecay, *h_dEtaDecay;
         TH2F *h_2d_dRDecay_pt;
         boost::optional<GenParticleId> genp_id;
     };
